@@ -1,3 +1,4 @@
+import { startJobs } from "./jobs.ts";
 import "dotenv/config";
 import express from "express";
 import { createServer } from "node:http";
@@ -12,6 +13,7 @@ if (
   throw new Error("Production requires APP_ORIGIN=https://... and SETUP_TOKEN");
 const db = await openDb(process.env.DATABASE_URL);
 await migrate(db);
+const stopJobs = startJobs(db);
 const app = createApp(db, {
   production,
   origin: process.env.APP_ORIGIN,
@@ -39,6 +41,7 @@ server.listen(port, process.env.HOST || "127.0.0.1", () =>
 for (const signal of ["SIGINT", "SIGTERM"])
   process.on(signal, () =>
     server.close(async () => {
+      stopJobs();
       await db.close();
       process.exit(0);
     }),

@@ -16,6 +16,7 @@ export const roles = [
   "pm",
   "foreman",
   "purchasing",
+  "accountant",
   "viewer",
 ] as const;
 export const projectSchema = z.object({
@@ -50,6 +51,23 @@ export const projectSchema = z.object({
   archived: z.boolean().default(false),
   sample: z.boolean().default(false),
   externalId: z.string().max(200).default(""),
+  division: note,
+  tags: z.array(z.string().max(80)).max(50).default([]),
+  workstreams: z.array(z.string().max(80)).max(50).default([]),
+  team: note,
+  contractStage: z
+    .enum(["prospect", "awarded", "active", "complete"])
+    .default("active"),
+  forecastMethod: z.enum(["none", "approved_productivity"]).default("none"),
+  productionWindow: z.enum(["7", "14", "30"]).default("14"),
+  missingUpdateDays: z.number().int().min(1).max(365).default(7),
+  readinessWarningPercent: z.number().min(0).max(100).default(50),
+  riskWarningScore: z.number().int().min(1).max(25).default(12),
+  escalationDays: z.number().int().min(0).max(365).default(2),
+  manualStatus: z
+    .enum(["unconfirmed", "on_track", "attention", "blocked"])
+    .default("unconfirmed"),
+  manualStatusReason: note,
   lateThresholdDays: z.number().int().min(0).max(365).default(0),
 });
 export type ProjectData = z.infer<typeof projectSchema>;
@@ -75,6 +93,9 @@ export const schemas = {
       .enum(["quantity", "earned_hours", "manual"])
       .default("quantity"),
     requiresMaterials: z.boolean().default(true),
+    predecessorIds: z.array(z.string().max(100)).max(100).default([]),
+    durationDays: z.number().int().min(0).max(10000).nullable().default(null),
+    completionReference: note,
     prerequisitesCleared: z.boolean().default(false),
     notes: note,
   }),
@@ -100,6 +121,12 @@ export const schemas = {
     supplier: note,
     po: note,
     expectedDate: optionalDate,
+    arrivalEarliest: optionalDate,
+    arrivalLatest: optionalDate,
+    leadTimeDays: z.number().int().min(0).max(10000).nullable().default(null),
+    returned: number.default(0),
+    returnReference: note,
+    deliveryReference: note,
     confirmed: z.boolean().default(false),
     notes: note,
   }),
@@ -107,9 +134,16 @@ export const schemas = {
     name: text,
     taskId: z.string().default(""),
     sectionId: z.string().default(""),
-    type: z.enum(["blocker", "risk", "rfi"]).default("blocker"),
+    type: z.enum(["blocker", "risk", "rfi", "submittal"]).default("blocker"),
     severity: z.enum(["low", "medium", "high", "critical"]).default("medium"),
     owner: note,
+    ownerId: z.string().max(100).default(""),
+    probability: z.number().int().min(1).max(5).nullable().default(null),
+    impact: z.number().int().min(1).max(5).nullable().default(null),
+    raisedDate: optionalDate,
+    closedDate: optionalDate,
+    reference: note,
+    evidenceIds: z.array(z.string().max(100)).max(50).default([]),
     dueDate: optionalDate,
     status: z.enum(["open", "closed"]).default("open"),
     notes: note,
@@ -134,6 +168,9 @@ export const schemas = {
         .enum(["draft", "submitted", "approved", "rejected", "voided"])
         .default("draft"),
       decisionNote: note,
+      signoff: note,
+      revisionOf: z.string().max(100).default(""),
+      evidenceIds: z.array(z.string().max(100)).max(50).default([]),
     })
     .refine(
       (r) => r.overtimeHours <= r.hours,
@@ -143,6 +180,7 @@ export const schemas = {
     .object({
       name: text,
       sectionId: text,
+      memberIds: z.array(z.string().max(100)).max(500).default([]),
       workers: z.number().int().min(1).max(10000),
       start: date,
       end: date,
@@ -160,6 +198,59 @@ export const schemas = {
     forecastFinish: optionalDate,
     reason: text,
     status: z.enum(["submitted", "approved", "rejected"]).default("submitted"),
+  }),
+  finance: z.object({
+    name: text,
+    taskId: z.string().default(""),
+    sectionId: z.string().default(""),
+    type: z.enum(["budget", "cost", "revenue", "contract"]),
+    amount: number,
+    currency: z.literal("USD").default("USD"),
+    date,
+    reference: text,
+    notes: note,
+    status: z
+      .enum(["submitted", "approved", "rejected", "voided"])
+      .default("submitted"),
+  }),
+  request: z.object({
+    name: text,
+    type: z.enum(["release", "field_change", "substitution", "publication"]),
+    targetId: z.string().max(100).default(""),
+    targetVersion: z.number().int().positive().nullable().default(null),
+    sectionId: z.string().default(""),
+    taskId: z.string().default(""),
+    reason: text,
+    reference: note,
+    dueDate: optionalDate,
+    publicationDays: z.number().int().min(1).max(90).default(7),
+    status: z.enum(["submitted", "approved", "rejected"]).default("submitted"),
+  }),
+  comment: z.object({
+    name: text,
+    body: z.string().trim().min(1).max(8000),
+    targetId: z.string().max(100).default(""),
+    visibility: z.enum(["team", "management"]).default("team"),
+    mentions: z.array(z.string().max(100)).max(50).default([]),
+    authorId: z.string().default(""),
+    authorName: z.string().default(""),
+    sectionId: z.string().default(""),
+    taskId: z.string().default(""),
+  }),
+  resource: z.object({
+    name: text,
+    trade: note,
+    workDays: z
+      .array(z.number().int().min(0).max(6))
+      .min(1)
+      .default([1, 2, 3, 4, 5]),
+    hoursPerDay: z.number().min(0).max(24).default(8),
+    holidays: z.array(date).max(1000).default([]),
+    unavailable: z
+      .array(z.object({ date, hours: z.number().min(0).max(24), reason: note }))
+      .max(2000)
+      .default([]),
+    active: z.boolean().default(true),
   }),
   document: z.object({
     name: text,

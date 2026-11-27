@@ -1,27 +1,9 @@
-# Fieldboard v0.1 release scope
+# Fieldboard v0.2 standalone release
 
-This is a working standalone beta with persisted records and complete core operating workflows. It is not a claim that every enterprise feature in the longer dashboard specification is finished.
+The standalone construction-management workflows in the source specification are implemented with persisted records, server authorization, source evidence and tests. See [the acceptance matrix](ACCEPTANCE.md) for the exact mapping and boundaries and [validation](VALIDATION.md) for the test evidence.
 
-## Implemented and exercised
+New in v0.2: production curves and trends; dependency/critical-path forecast proposals; person calendars and leave; approval-controlled financial register and EVM; expanded requests, risks and submittals; comments/mentions/notifications/reminders; nine report layouts and branding; multiple organizations and optional OIDC; encrypted backups/recovery, retention and telemetry; tested native PostgreSQL and actual attachment scanning; scheduled report delivery, verified signup and optional hosted Stripe subscriptions.
 
-Project setup and portfolio; sections and releases; editable task definitions; approval-controlled schedule revisions; quantity/earned/manual progress; approved field hours; PM/overtime separation; material allocations, holds and delivery risks; crew assignments and potential conflicts; issues/RFIs; report submission/approval/rejection/voiding; audited versioned changes; filtered source drilldown; historic baseline reconstruction; PDF/Excel/JSON snapshot exports; customer publication/expiry/revocation; project templates and JSON setup interchange; attachment quarantine; server role and project checks; saved layouts and filters; responsive screens and stale-state warnings.
+This release does not connect to Bidlark. Live Bidlark/Gantt/procurement adapters remain separate later work. SMTP delivery and Stripe checkout/portal/webhook entitlements are implemented, with local SMTP and signed-webhook contract tests. Their external accounts have not been provisioned or live-tested. No customer data is copied into the public source. Public sample data remains visibly marked, and unavailable measurements remain unavailable.
 
-The public sample is synthetic and visibly marked. Missing actual records, financial inputs, baseline dates or confirmations remain unavailable. A separately supplied local customer fixture is excluded from the public source tree.
-
-## Verification
-
-The initial release was exercised with automated tests for formulas and API workflows, TypeScript checking, a production frontend build, dependency auditing, a browser submission-to-approval workflow, desktop/mobile inspection, and rendered PDF/Excel inspection. Disk persistence is tested by closing and reopening the embedded database. See the release record for the actual final test count.
-
-The Docker recipe and node-postgres adapter are supplied; a deployed multi-user PostgreSQL environment and a real ClamAV installation have not been validated in this local release. Customer deployment requires staging verification and a tested backup/restore plan.
-
-## Remaining specification work
-
-- Native Bidlark, Interactive Gantt and Material & Manpower module integration with upstream source ownership and event reconciliation.
-- SSO/OIDC, multiple organization memberships, self-service tenant signup and subscription entitlements. The open-source install currently has one organization and no billing.
-- Detailed resource calendars and person-level availability; critical path/float and dependency-driven forecasts; approved cost inputs and financial projections.
-- Full progress S-curves, production forecasting and configurable multi-factor health policies. Current health supports a schedule-delay threshold and recorded material/blocker risk.
-- Comments, mentions, automatic reminders, richer risk probability/impact scoring, submittals and customizable escalation policies.
-- Additional report-specific layouts and company-logo customization. The current branded project report includes the organization name, selected metrics, labor data, milestones, constraints and calculation evidence.
-- Automated emailed reports, retention administration, managed backup jobs and production observability/load qualification.
-
-These are documented future work, not hidden buttons or mocked integrations. Core actions present in the UI call real APIs and persist their results.
+A deployment requires an HTTPS origin, persistent database storage, maintained scanner definitions and protected backup keys. Optional SSO requires the operator's provider configuration. The app can also run privately on localhost with password authentication and embedded PostgreSQL. See [operations](OPERATIONS.md).

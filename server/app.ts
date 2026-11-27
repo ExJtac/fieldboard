@@ -1,3 +1,20 @@
+import {
+  installBillingWebhook,
+  installBilling,
+  installEntitlementGate,
+  entitlement,
+} from "./billing.ts";
+import { installSignup, signupEnabled } from "./signup.ts";
+import { installSchedules } from "./schedules.ts";
+import { installOrganizations } from "./organizations.ts";
+import { installOidc, installOidcMapping } from "./oidc.ts";
+import { reportSchema } from "./reporting.ts";
+import {
+  visibleRecords,
+  financialRoles,
+  scheduleAnalysis,
+} from "./analysis.ts";
+import { installWorkspace } from "./workspace.ts";
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
 import helmet from "helmet";
@@ -60,10 +77,33 @@ const scopeSchema = z
   .refine((s) => !s.from || !s.to || s.from <= s.to, "Start must precede end");
 export function createApp(
   db: DB,
-  options: { production?: boolean; origin?: string; setupToken?: string } = {},
+  options: {
+    production?: boolean;
+    origin?: string;
+    setupToken?: string;
+    oidcConfig?: import("openid-client").Configuration;
+    billingClient?: import("stripe").default;
+  } = {},
 ) {
   const app = express();
   app.disable("x-powered-by");
+  app.locals.telemetry = {
+    startedAt: new Date().toISOString(),
+    requests: 0,
+    errors: 0,
+    durations: [] as number[],
+  };
+  app.use("/api", (req, res, next) => {
+    const start = performance.now();
+    res.on("finish", () => {
+      const m = app.locals.telemetry;
+      m.requests++;
+      if (res.statusCode >= 500) m.errors++;
+      m.durations.push(performance.now() - start);
+      if (m.durations.length > 1000) m.durations.shift();
+    });
+    next();
+  });
   app.use(
     helmet({
       contentSecurityPolicy: options.production ? undefined : false,
@@ -71,6 +111,7 @@ export function createApp(
     }),
   );
   if (process.env.TRUST_PROXY === "1") app.set("trust proxy", 1);
+  installBillingWebhook(app, db, options.billingClient);
   app.use(express.json({ limit: "1mb" }));
   app.use(cookieParser());
   app.use(
@@ -108,6 +149,8 @@ export function createApp(
     await db.query("SELECT 1");
     res.json({ status: "ok" });
   });
+  installOidc(app, db, options);
+  installSignup(app, db, authLimit, !!options.production);
   app.get("/api/auth/status", async (req, res) => {
     const user = await getUser(db, req);
     res.json({
@@ -115,6 +158,8 @@ export function createApp(
         .length,
       user,
       setupTokenRequired: !!options.setupToken || !!options.production,
+      signupEnabled: signupEnabled(),
+      oidcEnabled: !!process.env.OIDC_ISSUER && !!process.env.OIDC_CLIENT_ID,
     });
   });
   app.post("/api/auth/setup", authLimit, async (req, res) => {
@@ -158,6 +203,10 @@ export function createApp(
       await tx.query(
         "INSERT INTO users(id,org_id,name,email,role,password_hash) VALUES($1,$2,$3,$4,$5,$6)",
         [u.id, org, u.name, u.email, u.role, pw],
+      );
+      await tx.query(
+        "INSERT INTO memberships(user_id,org_id,role) VALUES($1,$2,'admin')",
+        [u.id, org],
       );
       await event(tx, u, null, "user", u.id, "setup", 1, {
         name: u.name,
@@ -207,6 +256,8 @@ export function createApp(
     res.locals.user = user;
     next();
   });
+  installBilling(app, db, options.billingClient);
+  installEntitlementGate(app, db);
   const user = (res: Response) => res.locals.user as User;
   const allow = (u: User, allowed: string[]) =>
     assert(
@@ -253,7 +304,7 @@ export function createApp(
         );
       return dashboard(
         project,
-        records,
+        visibleRecords(records, user(res).role),
         scope,
         scope.asOf || new Date().toISOString(),
       );
@@ -264,7 +315,11 @@ export function createApp(
     const org = (
       await db.query("SELECT * FROM organizations WHERE id=$1", [u.org_id])
     ).rows[0];
-    res.json({ user: u, organization: org });
+    res.json({
+      user: u,
+      organization: org,
+      entitlement: await entitlement(db, u.org_id),
+    });
   });
   app.get("/api/projects", async (req, res) => {
     const u = user(res);
@@ -281,7 +336,7 @@ export function createApp(
   });
   app.get("/api/portfolio", async (req, res) => {
     const u = user(res);
-    allow(u, ["admin", "pm", "foreman", "purchasing"]);
+    allow(u, ["admin", "pm", "foreman", "purchasing", "accountant"]);
     const result = await db.transaction(async (tx) => {
       let ps = (
         await tx.query(
@@ -293,14 +348,12 @@ export function createApp(
         ps = ps.filter((p) => u.project_ids.includes(p.id));
       return Promise.all(
         ps.map(async (p) =>
-          dashboard(
-            p,
-            (
-              await tx.query<RecordRow>(
-                "SELECT * FROM records WHERE project_id=$1",
-                [p.id],
-              )
-            ).rows,
+          restrictDashboard(
+            dashboard(
+              p,
+              visibleRecords((await loadProject(tx, u, p.id)).records, u.role),
+            ),
+            u.role,
           ),
         ),
       );
@@ -356,7 +409,7 @@ export function createApp(
     ),
   );
   app.get("/api/projects/:id/dashboard", async (req, res) =>
-    res.json(await getDashboard(req, res)),
+    res.json(restrictDashboard(await getDashboard(req, res), user(res).role)),
   );
   app.get("/api/projects/:id/metrics/:key", async (req, res) => {
     const d = await getDashboard(req, res);
@@ -368,7 +421,10 @@ export function createApp(
     });
     res.json({
       metric: m,
-      records: [source.project, ...source.records].filter((r) => ids.has(r.id)),
+      records: [
+        source.project,
+        ...visibleRecords(source.records, user(res).role),
+      ].filter((r) => ids.has(r.id)),
     });
   });
   app.get("/api/projects/:id/events", async (req, res) => {
@@ -383,13 +439,17 @@ export function createApp(
     );
   });
   const roleFor = (kind: Kind) =>
-    kind === "report"
-      ? ["admin", "pm", "foreman"]
-      : kind === "material"
-        ? ["admin", "pm", "purchasing"]
-        : kind === "issue"
-          ? ["admin", "pm", "foreman", "purchasing"]
-          : ["admin", "pm"];
+    kind === "finance"
+      ? financialRoles
+      : kind === "request" || kind === "comment"
+        ? ["admin", "pm", "foreman", "purchasing", "accountant"]
+        : kind === "report"
+          ? ["admin", "pm", "foreman"]
+          : kind === "material"
+            ? ["admin", "pm", "purchasing"]
+            : kind === "issue"
+              ? ["admin", "pm", "foreman", "purchasing"]
+              : ["admin", "pm"];
   async function validateReferences(
     tx: DB,
     projectId: string,
@@ -435,6 +495,113 @@ export function createApp(
           "Task and section must match",
         );
     }
+    if (kind === "material") {
+      assert(
+        data.returned <= data.received,
+        400,
+        "Returns cannot exceed receipts",
+      );
+      assert(
+        !data.arrivalEarliest ||
+          !data.arrivalLatest ||
+          data.arrivalEarliest <= data.arrivalLatest,
+        400,
+        "Arrival range is reversed",
+      );
+    }
+    for (const id of data.evidenceIds || [])
+      assert(
+        (
+          await tx.query(
+            "SELECT id FROM records WHERE id=$1 AND project_id=$2 AND kind='document'",
+            [id, projectId],
+          )
+        ).rows.length,
+        400,
+        "Evidence must belong to this project",
+      );
+    for (const id of [
+      ...(data.mentions || []),
+      ...(data.ownerId ? [data.ownerId] : []),
+    ]) {
+      const member = (
+        await tx.query(
+          "SELECT u.id,m.role,m.project_ids FROM users u JOIN memberships m ON m.user_id=u.id WHERE u.id=$1 AND m.org_id=$2 AND u.active=true AND m.active=true AND m.role<>'viewer'",
+          [
+            id,
+            (
+              await tx.query("SELECT org_id FROM projects WHERE id=$1", [
+                projectId,
+              ])
+            ).rows[0].org_id,
+          ],
+        )
+      ).rows[0];
+      assert(
+        member &&
+          (["admin", "pm"].includes(member.role) ||
+            member.project_ids.includes(projectId)),
+        400,
+        "Mention or assignee must have project access",
+      );
+      if (kind === "comment" && data.visibility === "management")
+        assert(
+          financialRoles.includes(member.role),
+          400,
+          "Mentioned member cannot read management comments",
+        );
+    }
+    if (kind === "crew")
+      for (const id of data.memberIds || [])
+        assert(
+          (
+            await tx.query(
+              "SELECT id FROM resources WHERE id=$1 AND org_id=(SELECT org_id FROM projects WHERE id=$2)",
+              [id, projectId],
+            )
+          ).rows.length,
+          400,
+          "Resource does not belong to this organization",
+        );
+    if (kind === "finance" && data.taskId && data.sectionId) {
+      const task = (
+        await tx.query("SELECT data FROM records WHERE id=$1", [data.taskId])
+      ).rows[0];
+      assert(
+        task.data.sectionId === data.sectionId,
+        400,
+        "Finance task and section must match",
+      );
+    }
+    if (
+      kind === "request" &&
+      ["release", "substitution", "field_change"].includes(data.type)
+    ) {
+      const target = (
+        await tx.query("SELECT * FROM records WHERE id=$1 AND project_id=$2", [
+          data.targetId,
+          projectId,
+        ])
+      ).rows[0];
+      assert(target, 400, "Approval target must belong to this project");
+      assert(
+        target.kind ===
+          (
+            {
+              release: "section",
+              substitution: "material",
+              field_change: "task",
+            } as any
+          )[data.type],
+        400,
+        "Incorrect approval target type",
+      );
+      assert(
+        data.targetVersion === target.version,
+        409,
+        "Approval target changed; refresh",
+      );
+    }
     if (kind === "task") {
       if (data.actualFinish)
         assert(
@@ -451,6 +618,36 @@ export function createApp(
           "Task finish must follow its start",
         );
     }
+    if (kind === "crew")
+      assert(
+        Date.parse(data.end) - Date.parse(data.start) <= 3660 * 86400000,
+        400,
+        "Crew assignments must fit within ten years",
+      );
+    if (kind === "report" && data.revisionOf) {
+      const prior = (
+        await tx.query(
+          "SELECT data FROM records WHERE id=$1 AND project_id=$2 AND kind='report'",
+          [data.revisionOf, projectId],
+        )
+      ).rows[0];
+      assert(
+        prior && ["voided", "rejected"].includes(prior.data.status),
+        400,
+        "Revised report must reference a voided or rejected report in this project",
+      );
+    }
+    if (kind === "comment" && data.targetId)
+      assert(
+        (
+          await tx.query(
+            "SELECT id FROM records WHERE id=$1 AND project_id=$2",
+            [data.targetId, projectId],
+          )
+        ).rows.length,
+        400,
+        "Comment target must belong to this project",
+      );
     if (kind === "report")
       assert(
         data.date <= today,
@@ -470,10 +667,21 @@ export function createApp(
             "report",
             "crew",
             "revision",
+            "finance",
+            "request",
+            "comment",
           ])
           .parse(req.params.kind);
         allow(u, roleFor(kind));
-        const data = schemas[kind].parse(req.body.data);
+        const data = schemas[kind].parse(
+          kind === "comment"
+            ? { ...req.body.data, authorId: u.id, authorName: u.name }
+            : req.body.data,
+        ) as any;
+        if (kind === "comment" && data.visibility === "management")
+          allow(u, financialRoles);
+        if (["finance", "request"].includes(kind))
+          assert(data.status === "submitted", 400, "Record must pass approval");
         if (kind === "report")
           assert(
             ["draft", "submitted"].includes((data as any).status),
@@ -505,6 +713,7 @@ export function createApp(
           return existing.response;
         }
         const row = await addRecord(tx, u, p.id, kind, data);
+        if (kind === "task") await validateDependencies(tx, p);
         await tx.query(
           "INSERT INTO idempotency(user_id,key,response) VALUES($1,$2,$3)",
           [u.id, key, JSON.stringify(row)],
@@ -525,7 +734,9 @@ export function createApp(
         assert(row, 404, "Record not found");
         allow(u, roleFor(row.kind));
         assert(
-          !["revision", "document"].includes(row.kind),
+          !["revision", "document", "finance", "request", "comment"].includes(
+            row.kind,
+          ),
           400,
           "Use the dedicated workflow",
         );
@@ -556,13 +767,15 @@ export function createApp(
             );
         }
         await validateReferences(tx, p.id, row.kind, data);
-        return changeRecord(
+        const updated = await changeRecord(
           tx,
           u,
           row,
           data,
           z.number().int().positive().parse(req.body.version),
         );
+        if (row.kind === "task") await validateDependencies(tx, p);
+        return updated;
       }),
     ),
   );
@@ -584,18 +797,95 @@ export function createApp(
           )
         ).rows[0];
         assert(
-          row && ["report", "revision"].includes(row.kind),
+          row &&
+            ["report", "revision", "finance", "request"].includes(row.kind),
           404,
           "Approval not found",
         );
         assert(row.version === body.version, 409, "Approval changed; refresh");
         assert(
           body.decision === "voided"
-            ? row.kind === "report" && row.data.status === "approved"
+            ? ["report", "finance"].includes(row.kind) &&
+                row.data.status === "approved"
             : row.data.status === "submitted",
           409,
           "Approval has already been decided",
         );
+        if (row.kind === "request" && body.decision === "approved") {
+          if (row.data.type === "publication") {
+            const loaded = await loadProject(tx, u, p.id);
+            const snapshot = publicSnapshot(
+              dashboard(loaded.project, loaded.records),
+              (
+                await tx.query("SELECT name FROM organizations WHERE id=$1", [
+                  u.org_id,
+                ])
+              ).rows[0].name,
+            );
+            const token = randomBytes(32).toString("hex"),
+              publicationId = randomUUID();
+            const expiresAt = new Date(
+              Date.now() + row.data.publicationDays * 86400000,
+            ).toISOString();
+            await tx.query(
+              "INSERT INTO publications(id,project_id,token_hash,snapshot,expires_at) VALUES($1,$2,$3,$4,$5)",
+              [
+                publicationId,
+                p.id,
+                hash(token),
+                JSON.stringify(snapshot),
+                expiresAt,
+              ],
+            );
+            res.locals.publication = {
+              id: publicationId,
+              url: `/share/${token}`,
+              expiresAt,
+            };
+            await event(
+              tx,
+              u,
+              p.id,
+              "publication",
+              publicationId,
+              "published",
+              1,
+              { expiresAt, asOf: snapshot.asOf },
+            );
+          } else {
+            const target = (
+              await tx.query<RecordRow>(
+                "SELECT * FROM records WHERE id=$1 AND project_id=$2",
+                [row.data.targetId, p.id],
+              )
+            ).rows[0];
+            assert(
+              target && target.version === row.data.targetVersion,
+              409,
+              "Approval target changed; submit a new request",
+            );
+            const data = { ...target.data };
+            if (row.data.type === "release") {
+              data.released = true;
+              data.releaseReference = row.data.reference || body.reason;
+            }
+            if (row.data.type === "substitution") {
+              data.status = "substituted";
+              data.notes = `${data.notes}\nApproved substitute: ${row.data.reference || body.reason}`;
+            }
+            if (row.data.type === "field_change") {
+              data.notes = `${data.notes}\nApproved field change: ${row.data.reason} (${body.reason})`;
+            }
+            await changeRecord(
+              tx,
+              u,
+              target,
+              data,
+              target.version,
+              "change_request_approved",
+            );
+          }
+        }
         if (row.kind === "revision" && body.decision === "approved") {
           const fields = row.data.taskId
             ? [
@@ -639,7 +929,7 @@ export function createApp(
             );
           }
         }
-        return changeRecord(
+        const decided = await changeRecord(
           tx,
           u,
           row,
@@ -653,6 +943,12 @@ export function createApp(
           body.version,
           body.decision,
         );
+        return {
+          ...decided,
+          ...(res.locals.publication
+            ? { publication: res.locals.publication }
+            : {}),
+        };
       }),
     ),
   );
@@ -685,7 +981,7 @@ export function createApp(
     res.json(
       (
         await db.query(
-          "SELECT id,name,email,role,project_ids,active FROM users WHERE org_id=$1 ORDER BY name",
+          "SELECT u.id,u.name,u.email,m.role,m.project_ids,m.active FROM users u JOIN memberships m ON m.user_id=u.id WHERE m.org_id=$1 ORDER BY u.name",
           [user(res).org_id],
         )
       ).rows,
@@ -728,6 +1024,10 @@ export function createApp(
             JSON.stringify(body.projectIds),
           ],
         );
+        await tx.query(
+          "INSERT INTO memberships(user_id,org_id,role,project_ids) VALUES($1,$2,$3,$4)",
+          [id, u.org_id, body.role, JSON.stringify(body.projectIds)],
+        );
         await event(tx, u, null, "user", id, "created", 1, {
           name: body.name,
           role: body.role,
@@ -766,7 +1066,7 @@ export function createApp(
         );
       const r = (
         await tx.query(
-          "UPDATE users SET role=$1,project_ids=$2,active=$3 WHERE id=$4 AND org_id=$5 RETURNING id",
+          "UPDATE memberships SET role=$1,project_ids=$2,active=$3 WHERE user_id=$4 AND org_id=$5 RETURNING user_id AS id",
           [
             b.role,
             JSON.stringify(b.projectIds),
@@ -807,7 +1107,7 @@ export function createApp(
       await tx.query("DELETE FROM sessions WHERE user_id=$1", [u.id]);
       await event(tx, u, null, "user", u.id, "password_changed", 1, {});
     });
-    await session(db, u.id, res, !!options.production);
+    await session(db, u.id, res, !!options.production, u.org_id);
     res.json({ ok: true });
   });
   app.post("/api/projects/:id/publications", async (req, res) => {
@@ -878,7 +1178,70 @@ export function createApp(
     },
   );
   app.post("/api/projects/:id/exports", async (req, res) => {
-    const d = await getDashboard(req, res);
+    const d = restrictDashboard(await getDashboard(req, res), user(res).role);
+    const config = reportSchema.parse(req.body || {});
+    const org = (
+      await db.query("SELECT name,settings FROM organizations WHERE id=$1", [
+        user(res).org_id,
+      ])
+    ).rows[0];
+    d.report = { ...config, organization: org.name, branding: org.settings };
+    if (org.settings.logoDocumentId) {
+      const logo = (
+        await db.query(
+          "SELECT f.content,r.data FROM files f JOIN records r ON r.id=f.record_id JOIN projects p ON p.id=r.project_id WHERE r.id=$1 AND p.org_id=$2",
+          [org.settings.logoDocumentId, user(res).org_id],
+        )
+      ).rows[0];
+      if (logo?.data.scanStatus === "clean") d.report.logo = logo.content;
+    }
+    if (config.type === "portfolio") {
+      const u = user(res);
+      const ps = (
+        await db.query(
+          "SELECT id FROM projects WHERE org_id=$1 AND created_at<=$2 ORDER BY created_at",
+          [u.org_id, d.asOf],
+        )
+      ).rows.filter(
+        (p) => ["admin", "pm"].includes(u.role) || u.project_ids.includes(p.id),
+      );
+      d.report.portfolio = [];
+      for (const p of ps) {
+        const loaded = await loadProject(db, u, p.id, { asOf: d.asOf });
+        const data = restrictDashboard(
+          dashboard(
+            loaded.project,
+            visibleRecords(loaded.records, u.role),
+            { from: d.scope.from, to: d.scope.to, asOf: d.scope.asOf },
+            d.asOf,
+          ),
+          u.role,
+        );
+        if (data.project.data.archived !== config.includeArchived) continue;
+        if (
+          !Object.entries(config.portfolioFilters).every(
+            ([k, v]) =>
+              !v ||
+              (k === "overdue"
+                ? data.metrics.some(
+                    (m: any) => m.key === "overdue" && !!m.value,
+                  )
+                : k === "health"
+                  ? data.health === v
+                  : String(data.project.data[k] || "") === v),
+          )
+        )
+          continue;
+        d.report.portfolio.push({
+          projectId: p.id,
+          name: data.project.data.name,
+          customer: data.project.data.customer,
+          health: data.health,
+          forecast: data.project.data.forecastFinish,
+          metrics: data.metrics,
+        });
+      }
+    }
     const id = randomUUID();
     await db.transaction(async (tx) => {
       await tx.query(
@@ -918,6 +1281,14 @@ export function createApp(
       )
     ).rows[0];
     assert(e, 404, "Export not found");
+    if (e.snapshot.report?.portfolio) {
+      const u = user(res);
+      e.snapshot.report.portfolio = e.snapshot.report.portfolio.filter(
+        (p: any) =>
+          ["admin", "pm"].includes(u.role) ||
+          u.project_ids.includes(p.projectId),
+      );
+    }
     const org = (
       await db.query("SELECT name FROM organizations WHERE id=$1", [
         user(res).org_id,
@@ -926,10 +1297,16 @@ export function createApp(
     const format = z.enum(["pdf", "xlsx", "json"]).parse(req.params.format);
     const buffer =
       format === "pdf"
-        ? await makePdf(e.snapshot, org)
+        ? await makePdf(restrictDashboard(e.snapshot, user(res).role), org)
         : format === "xlsx"
-          ? await makeExcel(e.snapshot, org)
-          : Buffer.from(JSON.stringify(e.snapshot, null, 2));
+          ? await makeExcel(restrictDashboard(e.snapshot, user(res).role), org)
+          : Buffer.from(
+              JSON.stringify(
+                restrictDashboard(e.snapshot, user(res).role),
+                null,
+                2,
+              ),
+            );
     res
       .set(
         "Content-Disposition",
@@ -1071,6 +1448,10 @@ export function createApp(
     }
   });
   installTransfer(app, db);
+  installWorkspace(app, db);
+  installOrganizations(app, db);
+  installOidcMapping(app, db);
+  installSchedules(app, db);
   app.use("/api", (req, res) =>
     res.status(404).json({ error: "Endpoint not found" }),
   );
@@ -1103,4 +1484,40 @@ export function errorHandler(
   res.status(500).json({
     error: "Request failed. Please retry or contact your administrator.",
   });
+}
+
+async function validateDependencies(tx: DB, p: any) {
+  const tasks = (
+    await tx.query<RecordRow>(
+      "SELECT * FROM records WHERE project_id=$1 AND kind='task'",
+      [p.id],
+    )
+  ).rows;
+  for (const t of tasks)
+    for (const id of t.data.predecessorIds || [])
+      assert(
+        id !== t.id &&
+          tasks.some((x) => x.id === id && x.data.kind !== "summary"),
+        400,
+        "Invalid predecessor",
+      );
+  const result = scheduleAnalysis(p, tasks);
+  assert(result.reason !== "Dependency cycle", 400, "Dependency cycle");
+}
+export function restrictDashboard(d: any, role: string) {
+  if (financialRoles.includes(role)) return d;
+  const clone = structuredClone(d);
+  const keys = new Set(
+    (clone.analysis?.financialMetrics || []).map((m: any) => m.key),
+  );
+  clone.metrics = clone.metrics.filter((m: any) => !keys.has(m.key));
+  clone.finances = [];
+  if (clone.analysis) {
+    clone.analysis.finance = [];
+    clone.analysis.financialMetrics = [];
+  }
+  clone.comments = (clone.comments || []).filter(
+    (r: any) => r.data.visibility !== "management",
+  );
+  return clone;
 }

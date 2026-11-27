@@ -1,3 +1,14 @@
+import { BillingSettings, ReportSchedules } from "./Delivery";
+import {
+  Analysis,
+  Financials,
+  Collaboration,
+  ResourceDirectory,
+  Notifications,
+  WorkspaceSettings,
+  OrganizationPicker,
+  OrganizationAdmin,
+} from "./Extended";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity,
@@ -45,6 +56,10 @@ const navigation = [
   ["Portfolio", Layers3],
   ["Overview", LayoutDashboard],
   ["Schedule", CalendarDays],
+  ["Analysis", Activity],
+  ["Financials", ShieldCheck],
+  ["Collaboration", Users],
+  ["Notifications", Bell],
   ["Resources", Users],
   ["Materials", Package],
   ["Daily reports", FileText],
@@ -87,6 +102,13 @@ function App() {
     [publications, setPublications] = useState<any[]>([]),
     [exports, setExports] = useState<any[]>([]),
     [members, setMembers] = useState<any[]>([]),
+    [projectTeam, setProjectTeam] = useState<any[]>([]),
+    [reportType, setReportType] = useState("weekly_owner"),
+    [reportTitle, setReportTitle] = useState(""),
+    [reportSections, setReportSections] = useState<string[]>([]),
+    [portfolioFilters, setPortfolioFilters] = useState<Record<string, string>>(
+      {},
+    ),
     [templates, setTemplates] = useState<any[]>([]),
     [views, setViews] = useState<any>({ hidden: [], order: [], favorites: [] }),
     [mobile, setMobile] = useState(false),
@@ -119,8 +141,10 @@ function App() {
       const status = await api("/auth/status");
       setAuth(status);
       if (status.user) {
-        const [who, ps, vs] = await Promise.all([
-          api("/me"),
+        const who = await api("/me");
+        setMe(who);
+        if (!who.entitlement.allowed) return;
+        const [ps, vs] = await Promise.all([
           api<Project[]>("/projects"),
           api("/views"),
         ]);
@@ -144,7 +168,7 @@ function App() {
   }, []);
   const refresh = useCallback(
     async (quiet = false) => {
-      if (!auth?.user) return;
+      if (!auth?.user || me?.entitlement?.allowed === false) return;
       const seq = ++sequence.current;
       if (!quiet) setLoading(true);
       try {
@@ -162,6 +186,7 @@ function App() {
           );
           if (seq !== sequence.current) return;
           setD(data);
+          setProjectTeam(await api(`/projects/${projectId}/team`));
         }
         if (page === "Activity" && projectId)
           setEvents(await api(`/projects/${projectId}/events`));
@@ -187,7 +212,15 @@ function App() {
         if (seq === sequence.current) setLoading(false);
       }
     },
-    [auth?.user, projectId, page, query, user?.role, manager],
+    [
+      auth?.user,
+      projectId,
+      page,
+      query,
+      user?.role,
+      manager,
+      me?.entitlement?.allowed,
+    ],
   );
   useEffect(() => {
     setD(null);
@@ -254,6 +287,21 @@ function App() {
     try {
       await send("/views", v, "PUT");
       setViews(v);
+      if (v.filters) {
+        if (
+          v.filters.projectId &&
+          projects.some((p) => p.id === v.filters.projectId)
+        )
+          setProjectId(v.filters.projectId);
+        if ("section" in v.filters) setSection(v.filters.section);
+        if ("from" in v.filters) setFrom(v.filters.from);
+        if ("to" in v.filters) setTo(v.filters.to);
+        if (v.filters.portfolio) {
+          try {
+            setPortfolioFilters(JSON.parse(v.filters.portfolio));
+          } catch {}
+        }
+      }
       notify("View saved");
     } catch (e) {
       fail(e);
@@ -262,7 +310,13 @@ function App() {
   const createProject = () => setModal({ type: "project" });
   const exportReport = async () => {
     try {
-      const e = await send(endpoint("exports"), {});
+      const e = await send(endpoint("exports"), {
+        type: reportType,
+        portfolioFilters,
+        includeArchived: showArchived,
+        ...(reportTitle ? { title: reportTitle } : {}),
+        ...(reportSections.length ? { sections: reportSections } : {}),
+      });
       await refresh(true);
       setModal({ type: "export", id: e.id });
     } catch (e) {
@@ -281,12 +335,31 @@ function App() {
   if (!auth.user)
     return (
       <Auth
+        oidcEnabled={auth.oidcEnabled}
+        signupEnabled={auth.signupEnabled}
         setup={auth.setupRequired}
         tokenRequired={auth.setupTokenRequired}
         onDone={bootstrap}
       />
     );
   if (!me) return <div className="boot">Loading workspace…</div>;
+  if (me?.entitlement?.allowed === false)
+    return (
+      <main className="shared">
+        <h1>{me.organization.name}</h1>
+        <OrganizationPicker />
+        <BillingSettings />
+        <button
+          className="button secondary"
+          onClick={async () => {
+            await send("/auth/logout", {});
+            location.href = "/";
+          }}
+        >
+          Sign out
+        </button>
+      </main>
+    );
   if (user?.role === "viewer")
     return (
       <main className="shared">
@@ -307,9 +380,12 @@ function App() {
       </main>
     );
   const approvals = d
-    ? [...d.reports, ...d.revisions].filter(
-        (r) => r.data.status === "submitted",
-      )
+    ? [
+        ...d.reports,
+        ...d.revisions,
+        ...(d.requests || []),
+        ...(d.finances || []),
+      ].filter((r) => r.data.status === "submitted")
     : [];
   const filteredTasks = d?.tasks.filter(matches) || [];
   const button = (label: string, action: () => void, secondary = false) => (
@@ -377,19 +453,25 @@ function App() {
         </div>
         <p className="nav-label">WORKSPACE</p>
         <nav>
-          {navigation.map(([name, Icon]) => (
-            <button
-              key={name}
-              className={page === name ? "active" : ""}
-              onClick={() => navigate(name)}
-            >
-              <Icon size={18} />
-              <span>{name}</span>
-              {name === "Approvals" && approvals.length > 0 && (
-                <b>{approvals.length}</b>
-              )}
-            </button>
-          ))}
+          {navigation
+            .filter(
+              ([name]) =>
+                name !== "Financials" ||
+                ["admin", "pm", "accountant"].includes(user!.role),
+            )
+            .map(([name, Icon]) => (
+              <button
+                key={name}
+                className={page === name ? "active" : ""}
+                onClick={() => navigate(name)}
+              >
+                <Icon size={18} />
+                <span>{name}</span>
+                {name === "Approvals" && approvals.length > 0 && (
+                  <b>{approvals.length}</b>
+                )}
+              </button>
+            ))}
         </nav>
         <div className="sidebar-bottom">
           <div className="open-source">
@@ -436,7 +518,7 @@ function App() {
             >
               <Menu size={20} />
             </button>
-            <span>Workspace</span>
+            <OrganizationPicker />
             <span>/</span>
             <strong>{page}</strong>
           </div>
@@ -452,8 +534,8 @@ function App() {
             </label>
             <button
               className="icon-btn notification"
-              aria-label={`${approvals.length} pending approvals`}
-              onClick={() => navigate("Approvals")}
+              aria-label="Notification center"
+              onClick={() => navigate("Notifications")}
             >
               <Bell size={19} />
               {approvals.length > 0 && <i />}
@@ -601,7 +683,13 @@ function App() {
                 onClick={() =>
                   void saveView({
                     ...views,
-                    filters: { projectId, section, from, to },
+                    filters: {
+                      ...(views.filters || {}),
+                      projectId,
+                      section,
+                      from,
+                      to,
+                    },
                   })
                 }
               >
@@ -656,6 +744,56 @@ function App() {
                 Return to current data
               </button>
             </div>
+          )}
+          {page === "Notifications" && (
+            <Notifications
+              navigate={(id, page) => {
+                setProjectId(id);
+                navigate(page);
+              }}
+            />
+          )}
+          {d && page === "Analysis" && (
+            <Analysis d={d} editable={editable} onSaved={saved} />
+          )}
+          {d &&
+            page === "Financials" &&
+            ["admin", "pm", "accountant"].includes(user!.role) && (
+              <Financials
+                editable={canWrite}
+                manager={manager}
+                d={d}
+                open={openRecord}
+                metric={metric}
+                decision={(r) => {
+                  if (editable)
+                    setModal({ type: "decision", row: r, decision: "voided" });
+                }}
+              />
+            )}
+          {d && page === "Collaboration" && (
+            <Collaboration
+              d={d}
+              user={user!}
+              editable={canWrite}
+              open={openRecord}
+              onSaved={saved}
+            />
+          )}
+          {d && page === "Resources" && (
+            <ResourceDirectory d={d} editable={editable} onSaved={saved} />
+          )}
+          {page === "Settings" && user?.role === "admin" && (
+            <OrganizationAdmin />
+          )}
+          {page === "Settings" && <BillingSettings />}
+          {page === "Settings" && (
+            <WorkspaceSettings
+              user={user!}
+              d={d}
+              views={views}
+              saveView={saveView}
+            />
           )}
           {page === "Portfolio" && (
             <>
@@ -724,6 +862,85 @@ function App() {
                     </select>
                   </>,
                 )}
+                <div className="portfolio-filters">
+                  {[
+                    "customer",
+                    "division",
+                    "manager",
+                    "team",
+                    "contractStage",
+                    "health",
+                  ].map((k) => (
+                    <label key={k}>
+                      {k === "contractStage" ? "Contract stage" : k}
+                      <select
+                        value={portfolioFilters[k] || ""}
+                        onChange={(e) =>
+                          setPortfolioFilters({
+                            ...portfolioFilters,
+                            [k]: e.target.value,
+                          })
+                        }
+                      >
+                        <option value="">All</option>
+                        {[
+                          ...new Set(
+                            portfolio
+                              .map((p) =>
+                                k === "health"
+                                  ? p.health
+                                  : String((p.project.data as any)[k] || ""),
+                              )
+                              .filter(Boolean),
+                          ),
+                        ]
+                          .sort()
+                          .map((v) => (
+                            <option key={v} value={v}>
+                              {v.replaceAll("_", " ")}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                  ))}
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={!!portfolioFilters.overdue}
+                      onChange={(e) =>
+                        setPortfolioFilters({
+                          ...portfolioFilters,
+                          overdue: e.target.checked ? "yes" : "",
+                        })
+                      }
+                    />
+                    Overdue milestones
+                  </label>
+                  <button
+                    className="text-button"
+                    onClick={() =>
+                      saveView({
+                        ...views,
+                        filters: {
+                          ...(views.filters || {}),
+                          portfolio: JSON.stringify(portfolioFilters),
+                        },
+                      })
+                    }
+                  >
+                    Save portfolio filters
+                  </button>
+                  {views.filters?.portfolio && (
+                    <button
+                      className="text-button"
+                      onClick={() =>
+                        setPortfolioFilters(JSON.parse(views.filters.portfolio))
+                      }
+                    >
+                      Apply saved portfolio filters
+                    </button>
+                  )}
+                </div>
                 <div className="table-wrap">
                   <table>
                     <thead>
@@ -742,6 +959,19 @@ function App() {
                         .filter(
                           (p) =>
                             p.project.data.archived === showArchived &&
+                            Object.entries(portfolioFilters).every(
+                              ([k, v]) =>
+                                !v ||
+                                (k === "overdue"
+                                  ? p.metrics.some(
+                                      (m) => m.key === "overdue" && !!m.value,
+                                    )
+                                  : k === "health"
+                                    ? p.health === v
+                                    : String(
+                                        (p.project.data as any)[k] || "",
+                                      ) === v),
+                            ) &&
                             JSON.stringify(p.project.data)
                               .toLowerCase()
                               .includes(search.toLowerCase()),
@@ -1186,9 +1416,7 @@ function App() {
                 <article className="approval" key={r.id}>
                   <div>
                     <p className="eyebrow">
-                      {r.kind === "revision"
-                        ? "SCHEDULE REVISION"
-                        : "DAILY REPORT"}
+                      {r.kind.replaceAll("_", " ").toUpperCase()}
                     </p>
                     <h3>{r.data.name || r.data.accomplishments}</h3>
                     <p>
@@ -1299,6 +1527,89 @@ function App() {
           )}
           {d && page === "Reports" && (
             <>
+              {editable && (
+                <ReportSchedules
+                  d={d}
+                  team={projectTeam}
+                  report={{
+                    type: reportType,
+                    title: reportTitle,
+                    sections: reportSections.length
+                      ? reportSections
+                      : undefined,
+                    includeArchived: showArchived,
+                    portfolioFilters,
+                  }}
+                />
+              )}
+              <section className="panel">
+                <label>
+                  Report layout
+                  <select
+                    value={reportType}
+                    onChange={(e) => setReportType(e.target.value)}
+                  >
+                    {[
+                      "weekly_owner",
+                      "gc_lookahead",
+                      "schedule_performance",
+                      "open_issues",
+                      "manpower_forecast",
+                      "material_risks",
+                      "productivity",
+                      "milestone_log",
+                      "portfolio",
+                    ].map((t) => (
+                      <option key={t} value={t}>
+                        {t.replaceAll("_", " ")}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <p>
+                  The selected layout uses the current project, section, date
+                  range and historical snapshot. Portfolio reports include
+                  accessible projects only.
+                </p>
+                <label>
+                  Custom report title
+                  <input
+                    value={reportTitle}
+                    onChange={(e) => setReportTitle(e.target.value)}
+                    placeholder="Use layout title"
+                  />
+                </label>
+                <details>
+                  <summary>Customize report sections</summary>
+                  <p>
+                    Leave unchecked to use the selected layout's defaults.
+                    Source evidence is always included.
+                  </p>
+                  {[
+                    "schedule",
+                    "issues",
+                    "resources",
+                    "materials",
+                    "productivity",
+                    "curve",
+                  ].map((k) => (
+                    <label className="check" key={k}>
+                      <input
+                        type="checkbox"
+                        checked={reportSections.includes(k)}
+                        onChange={(e) =>
+                          setReportSections(
+                            e.target.checked
+                              ? [...reportSections, k]
+                              : reportSections.filter((x) => x !== k),
+                          )
+                        }
+                      />
+                      {k}
+                    </label>
+                  ))}
+                </details>
+              </section>
               <section className="panel">
                 {heading(
                   "Project report exports",
@@ -1697,7 +2008,24 @@ function App() {
       {modal?.type === "record" && d && (
         <Editor
           title={`${modal.row ? "Edit" : "New"} ${modal.kind === "report" ? "daily report" : modal.kind}`}
-          fields={recordFields(modal.kind, d, !!modal.row)}
+          fields={recordFields(modal.kind, d, !!modal.row).map((f) =>
+            f.key === "ownerId"
+              ? {
+                  ...f,
+                  options: projectTeam.map((u) => ({
+                    value: u.id,
+                    label: u.name,
+                  })),
+                }
+              : f.key === "predecessorIds"
+                ? {
+                    ...f,
+                    options: f.options?.filter(
+                      (o) => o.value !== modal.row?.id,
+                    ),
+                  }
+                : f,
+          )}
           initial={modal.row?.data || recordDefault(modal.kind, d)}
           onClose={() => setModal(null)}
           description={
@@ -1708,6 +2036,20 @@ function App() {
                 : undefined
           }
           onSave={async (data) => {
+            if (modal.kind === "request") {
+              const target = [...d.sections, ...d.tasks, ...d.materials].find(
+                (r) => r.id === data.targetId,
+              );
+              data.targetVersion = target?.version || null;
+              data.taskId =
+                target?.kind === "task" ? target.id : target?.data.taskId || "";
+              data.sectionId =
+                target?.kind === "section"
+                  ? target.id
+                  : target?.data.sectionId ||
+                    d.tasks.find((t) => t.id === data.taskId)?.data.sectionId ||
+                    "";
+            }
             await send(
               modal.row
                 ? `/projects/${projectId}/records/${modal.row.id}`
@@ -1741,7 +2083,8 @@ function App() {
             },
           ]}
           initial={{
-            ...(modal.row?.data || projectDefault),
+            ...projectDefault,
+            ...(modal.row?.data || {}),
             workDaysText: (modal.row?.data.workDays || [1, 2, 3, 4, 5]).join(
               ",",
             ),
@@ -1789,7 +2132,11 @@ function App() {
         />
       )}
       {modal?.type === "details" && (
-        <RecordDetails record={modal.row} onClose={() => setModal(null)} />
+        <RecordDetails
+          record={modal.row}
+          documents={d?.documents}
+          onClose={() => setModal(null)}
+        />
       )}
       {modal?.type === "metric" && (
         <Modal
@@ -1858,13 +2205,35 @@ function App() {
           onClose={() => setModal(null)}
           submit="Record decision"
           onSave={async (data) => {
-            await send(
+            const result = await send(
               `/projects/${projectId}/approvals/${modal.row.id}/decision`,
               { ...data, decision: modal.decision, version: modal.row.version },
             );
             await saved();
+            if (result.publication) {
+              setTimeout(
+                () =>
+                  setModal({
+                    type: "publication-link",
+                    url: result.publication.url,
+                  }),
+                0,
+              );
+            }
           }}
         />
+      )}
+      {modal?.type === "publication-link" && (
+        <Modal
+          title="Approved customer publication"
+          onClose={() => setModal(null)}
+        >
+          <p>Save this link now. Its token is shown once.</p>
+          <a href={modal.url}>
+            {location.origin}
+            {modal.url}
+          </a>
+        </Modal>
       )}
       {modal?.type === "export" && (
         <Modal title="Your report is ready" onClose={() => setModal(null)}>
@@ -2071,7 +2440,11 @@ function CrewConflicts({ portfolio }: { portfolio: Dashboard[] }) {
         y = all[b];
       if (
         x.project_id !== y.project_id &&
-        x.data.name.trim().toLowerCase() === y.data.name.trim().toLowerCase() &&
+        (x.data.name.trim().toLowerCase() ===
+          y.data.name.trim().toLowerCase() ||
+          (x.data.memberIds || []).some((id: string) =>
+            (y.data.memberIds || []).includes(id),
+          )) &&
         x.data.start <= y.data.end &&
         y.data.start <= x.data.end
       )
@@ -2191,7 +2564,14 @@ function UserEditor({
       label: "Role",
       type: "select",
       required: true,
-      options: ["admin", "pm", "foreman", "purchasing", "viewer"].map((r) => ({
+      options: [
+        "admin",
+        "pm",
+        "foreman",
+        "purchasing",
+        "accountant",
+        "viewer",
+      ].map((r) => ({
         value: r,
         label: r,
       })),

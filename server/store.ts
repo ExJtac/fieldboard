@@ -1,3 +1,4 @@
+import { notifyEvent } from "./notifications.ts";
 import { randomUUID } from "node:crypto";
 import type { DB } from "./db.ts";
 import {
@@ -7,6 +8,7 @@ import {
   type User,
   type Kind,
   type Scope,
+  schemas,
 } from "./domain.ts";
 export async function event(
   db: DB,
@@ -33,6 +35,7 @@ export async function event(
       JSON.stringify(payload),
     ],
   );
+  await notifyEvent(db, user, projectId, kind, id, action, version, payload);
 }
 export async function authorizedProject(db: DB, user: User, id: string) {
   const p = (
@@ -66,29 +69,25 @@ export async function loadProject(
       [id],
     )
   ).rows;
+  const resourceRows = (
+    await db.query(
+      "SELECT *, 'resource' AS kind, '' AS project_id FROM resources WHERE org_id=$1",
+      [user.org_id],
+    )
+  ).rows as RecordRow[];
+  records.push(...resourceRows);
   if (scope.asOf) {
     const events = (
       await db.query(
-        "SELECT * FROM events WHERE project_id=$1 AND created_at<=$2 ORDER BY seq",
-        [id, scope.asOf],
+        "SELECT * FROM events WHERE (project_id=$1 OR (org_id=$3 AND entity_kind='resource')) AND created_at<=$2 ORDER BY seq",
+        [id, scope.asOf, user.org_id],
       )
     ).rows;
     const map = new Map<string, RecordRow>();
     let historical: Project | undefined;
     for (const e of events) {
       if (e.entity_kind === "project") historical = e.payload;
-      else if (
-        [
-          "section",
-          "task",
-          "material",
-          "issue",
-          "report",
-          "crew",
-          "revision",
-          "document",
-        ].includes(e.entity_kind)
-      )
+      else if (Object.keys(schemas).includes(e.entity_kind))
         map.set(e.entity_id, e.payload);
     }
     assert(historical, 404, "Project did not exist at this time");

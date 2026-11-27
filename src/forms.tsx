@@ -38,6 +38,32 @@ export const projectFields: Field[] = [
     "Closeout",
   ]),
   f("timezone", "Project timezone"),
+  f("division", "Division"),
+  f("team", "Team"),
+  f("tags", "Tags (one per line)", "lines"),
+  f("workstreams", "Workstreams (one per line)", "lines"),
+  select("contractStage", "Contract stage", [
+    "prospect",
+    "awarded",
+    "active",
+    "complete",
+  ]),
+  select("forecastMethod", "Production forecast method", [
+    "none",
+    "approved_productivity",
+  ]),
+  select("productionWindow", "Production window (days)", ["7", "14", "30"]),
+  f("missingUpdateDays", "Missing update warning (days)", "number"),
+  f("readinessWarningPercent", "Material readiness warning below %", "number"),
+  f("riskWarningScore", "Risk warning score (1–25)", "number"),
+  f("escalationDays", "Escalate overdue issues after days", "number"),
+  select("manualStatus", "Manager-reported status", [
+    "unconfirmed",
+    "on_track",
+    "attention",
+    "blocked",
+  ]),
+  f("manualStatusReason", "Manager status evidence", "textarea"),
   f("estimatedHours", "Approved field labor baseline (hours)", "number"),
   f("pmHours", "PM labor baseline (hours)", "number"),
   f("baselineFinish", "Approved baseline finish", "date"),
@@ -62,6 +88,19 @@ export const projectDefault = {
   sample: false,
   externalId: "",
   lateThresholdDays: 0,
+  division: "",
+  team: "",
+  tags: [],
+  workstreams: [],
+  contractStage: "active",
+  forecastMethod: "none",
+  productionWindow: "14",
+  missingUpdateDays: 7,
+  readinessWarningPercent: 50,
+  riskWarningScore: 12,
+  escalationDays: 2,
+  manualStatus: "unconfirmed",
+  manualStatusReason: "",
 };
 export function recordFields(
   kind: Kind,
@@ -119,7 +158,21 @@ export function recordFields(
               f("forecastFinish", "Forecast finish", "date"),
             ]
           : []),
+        {
+          key: "predecessorIds",
+          label: "Finish-to-start predecessors",
+          type: "multi",
+          options: d.tasks
+            .filter((t) => t.data.kind !== "summary")
+            .map((t) => ({ value: t.id, label: t.data.name })),
+        },
+        f("durationDays", "Working duration for dependency forecast", "number"),
         f("actualFinish", "Verified completion date", "date"),
+        f(
+          "completionReference",
+          "Completion evidence / inspection reference",
+          "textarea",
+        ),
         f("prerequisitesCleared", "Prerequisites cleared", "checkbox"),
         f("notes", "Evidence / notes", "textarea"),
       ];
@@ -144,6 +197,12 @@ export function recordFields(
         f("supplier", "Supplier"),
         f("po", "Purchase order reference"),
         f("expectedDate", "Expected arrival", "date"),
+        f("arrivalEarliest", "Arrival range: earliest", "date"),
+        f("arrivalLatest", "Arrival range: latest", "date"),
+        f("leadTimeDays", "Supplier lead time (days)", "number"),
+        f("returned", "Returned quantity (deducted from received)", "number"),
+        f("returnReference", "Return reference"),
+        f("deliveryReference", "Delivery evidence / packing slip"),
         f("confirmed", "Supplier has confirmed arrival date", "checkbox"),
         f("notes", "Delivery evidence / notes", "textarea"),
       ];
@@ -152,9 +211,41 @@ export function recordFields(
         f("name", "Issue or question", "text", true),
         { ...section, required: false },
         { ...task, required: false },
-        select("type", "Type", ["blocker", "risk", "rfi"]),
+        select("type", "Type", ["blocker", "risk", "rfi", "submittal"]),
         select("severity", "Severity", ["low", "medium", "high", "critical"]),
         f("owner", "Owner"),
+        {
+          key: "ownerId",
+          label: "Notify assigned team member",
+          type: "select",
+          options: [],
+        },
+        {
+          key: "probability",
+          label: "Probability (1–5)",
+          type: "number",
+          min: 1,
+          max: 5,
+        },
+        {
+          key: "impact",
+          label: "Impact (1–5)",
+          type: "number",
+          min: 1,
+          max: 5,
+        },
+        f("raisedDate", "Date raised", "date"),
+        f("closedDate", "Date closed", "date"),
+        f("reference", "RFI / submittal reference"),
+        {
+          key: "evidenceIds",
+          label: "Evidence",
+          type: "multi",
+          options: d.documents.map((r) => ({
+            value: r.id,
+            label: r.data.name,
+          })),
+        },
         f("dueDate", "Response due", "date"),
         select("status", "Status", ["open", "closed"]),
         f("notes", "Details / evidence", "textarea"),
@@ -181,13 +272,42 @@ export function recordFields(
         f("safety", "Safety notes", "textarea"),
         f("delays", "Delays / constraints", "textarea"),
         f("deliveries", "Deliveries", "textarea"),
+        f("signoff", "Submitted by / sign-off", "text"),
+        {
+          key: "revisionOf",
+          label: "Revises a voided or rejected report",
+          type: "select",
+          options: d.reports
+            .filter((r) => ["voided", "rejected"].includes(r.data.status))
+            .map((r) => ({
+              value: r.id,
+              label: `${r.data.date}: ${r.data.accomplishments}`,
+            })),
+        },
+        {
+          key: "evidenceIds",
+          label: "Photos, tests and evidence",
+          type: "multi",
+          options: d.documents.map((r) => ({
+            value: r.id,
+            label: r.data.name,
+          })),
+        },
         select("status", "Save as", ["draft", "submitted"]),
       ];
     case "crew":
       return [
         f("name", "Crew name (use consistently across projects)", "text", true),
         section,
-        f("workers", "Workers", "number", true),
+        {
+          key: "memberIds",
+          label: "Named people (replaces worker count for capacity)",
+          type: "multi",
+          options: (d.analysis?.resources.resources || [])
+            .filter((r) => r.data.active)
+            .map((r) => ({ value: r.id, label: r.data.name })),
+        },
+        f("workers", "Workers (for unnamed crews)", "number", true),
         f("start", "Assignment start", "date", true),
         f("end", "Assignment end", "date", true),
         f("hoursPerDay", "Hours per worker / workday", "number", true),
@@ -197,6 +317,45 @@ export function recordFields(
           "number",
         ),
         f("notes", "Assignment notes", "textarea"),
+      ];
+    case "finance":
+      return [
+        f("name", "Entry name", "text", true),
+        select("type", "Entry type", ["budget", "cost", "revenue", "contract"]),
+        f("amount", "Approved source amount (USD)", "number", true),
+        f("date", "Accounting date", "date", true),
+        { ...section, required: false },
+        { ...task, required: false },
+        f(
+          "reference",
+          "Source invoice / budget approval reference",
+          "text",
+          true,
+        ),
+        f("notes", "Notes", "textarea"),
+      ];
+    case "request":
+      return [
+        f("name", "Request title", "text", true),
+        select("type", "Approval type", [
+          "release",
+          "field_change",
+          "substitution",
+          "publication",
+        ]),
+        {
+          key: "targetId",
+          label: "Target section, activity or material",
+          type: "select",
+          options: [...d.sections, ...d.tasks, ...d.materials].map((r) => ({
+            value: r.id,
+            label: `${r.kind}: ${r.data.name}`,
+          })),
+        },
+        f("reason", "Reason", "textarea", true),
+        f("reference", "Evidence / reference"),
+        f("dueDate", "Decision due", "date"),
+        f("publicationDays", "Publication validity (days)", "number"),
       ];
     case "revision":
       return [
@@ -296,6 +455,30 @@ export function recordDefault(kind: Kind, d: Dashboard) {
         hoursPerDay: 8,
         unavailableHours: 0,
         notes: "",
+      };
+    case "finance":
+      return {
+        name: "",
+        type: "cost",
+        amount: null,
+        date: today,
+        taskId: "",
+        sectionId: "",
+        reference: "",
+        notes: "",
+        status: "submitted",
+      };
+    case "request":
+      return {
+        name: "",
+        type: "release",
+        targetId: "",
+        targetVersion: null,
+        reason: "",
+        reference: "",
+        dueDate: "",
+        publicationDays: 7,
+        status: "submitted",
       };
     case "revision":
       return {
@@ -424,7 +607,38 @@ export function Editor({
                   {field.required ? " *" : ""}
                 </span>
               )}
-              {field.type === "select" ? (
+              {field.type === "multi" ? (
+                <select
+                  multiple
+                  aria-label={field.label}
+                  value={data[field.key] || []}
+                  onChange={(e) =>
+                    setData({
+                      ...data,
+                      [field.key]: Array.from(e.target.selectedOptions).map(
+                        (o) => o.value,
+                      ),
+                    })
+                  }
+                >
+                  {field.options?.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              ) : field.type === "lines" ? (
+                <textarea
+                  rows={3}
+                  value={(data[field.key] || []).join("\n")}
+                  onChange={(e) =>
+                    setData({
+                      ...data,
+                      [field.key]: e.target.value.split("\n"),
+                    })
+                  }
+                />
+              ) : field.type === "select" ? (
                 <select
                   required={field.required}
                   value={data[field.key] ?? ""}
@@ -505,9 +719,11 @@ export function Editor({
 }
 export function RecordDetails({
   record,
+  documents = [],
   onClose,
 }: {
   record: RecordRow;
+  documents?: RecordRow[];
   onClose: () => void;
 }) {
   return (
@@ -515,6 +731,32 @@ export function RecordDetails({
       title={record.data.name || record.data.accomplishments || "Source record"}
       onClose={onClose}
     >
+      {(record.data.evidenceIds || []).length > 0 && (
+        <section>
+          <h3>Linked evidence</h3>
+          {record.data.evidenceIds.map((id: string) => {
+            const doc = documents.find((r) => r.id === id);
+            return (
+              <p key={id}>
+                {doc?.data.scanStatus === "clean" ? (
+                  <a
+                    href={`/api/projects/${record.project_id}/documents/${id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {doc.data.name} · {doc.data.category}
+                  </a>
+                ) : (
+                  doc?.data.name || "Evidence unavailable"
+                )}
+                {doc && doc.data.scanStatus !== "clean"
+                  ? " · awaiting clean scan"
+                  : ""}
+              </p>
+            );
+          })}
+        </section>
+      )}
       <dl className="details">
         {Object.entries(record.data).map(([key, value]) => (
           <div key={key}>

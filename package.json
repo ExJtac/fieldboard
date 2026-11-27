@@ -1,6 +1,6 @@
 {
   "name": "@cas-tx/fieldboard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Open-source construction project dashboard with traceable metrics and approval workflows",
   "license": "MIT",
   "type": "module",
@@ -11,7 +11,8 @@
     "test": "tsx --test tests/*.test.ts",
     "check": "tsc --noEmit",
     "preview": "tsx server/index.ts --preview",
-    "format": "prettier --write src server tests scripts *.json *.ts *.html"
+    "format": "prettier --write src server tests scripts *.json *.ts *.html",
+    "backup": "tsx scripts/backup.ts"
   },
   "engines": {
     "node": ">=22"
@@ -28,10 +29,13 @@
     "helmet": "^8.3.0",
     "lucide-react": "^1.81.0",
     "multer": "^2.5.0",
+    "nodemailer": "^10.6.1",
+    "openid-client": "^6.9.1",
     "pdfkit": "^0.21.0",
     "pg": "^8.23.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "stripe": "^23.2.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -39,6 +43,7 @@
     "@types/express": "^5.0.6",
     "@types/multer": "^2.3.0",
     "@types/node": "^26.6.11",
+    "@types/nodemailer": "^8.0.2",
     "@types/pdfkit": "^0.17.7",
     "@types/pg": "^8.23.1",
     "@types/react": "^19.3.3",

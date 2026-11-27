@@ -1,3 +1,4 @@
+import { reportTypes } from "../server/reporting.ts";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dashboard } from "../server/metrics.ts";
 import { makePdf, makeExcel } from "../server/exports.ts";
@@ -75,3 +76,25 @@ await writeFile(
   await makeExcel(d, "CAS-TX Sample"),
 );
 console.log("Wrote synthetic PDF and Excel verification reports.");
+
+for (const type of reportTypes) {
+  const specialized = {
+    ...d,
+    report: { type, includeArchived: false, portfolioFilters: {} },
+  };
+  await writeFile(
+    `.data/export-check/${type}.pdf`,
+    await makePdf(specialized, "CAS-TX Sample"),
+  );
+}
+
+await writeFile(
+  ".data/export-check/custom-productivity.pdf",
+  await makePdf(
+    {
+      ...d,
+      report: { type: "productivity", sections: ["productivity"] },
+    } as any,
+    "CAS-TX Sample",
+  ),
+);

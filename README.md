@@ -2,7 +2,7 @@
 
 An open-source construction project dashboard by CAS-TX. Track schedules, crews, material readiness, issues and verified production in one self-hosted workspace. Every KPI includes its calculation, source IDs, versions, filters and timestamp.
 
-**Status: functional beta, v0.1.0.** This is an independent application. Bidlark integration is a future phase; no Bidlark services, credentials or customer records are required.
+**Status: standalone release, v0.2.0.** This is an independent application. Bidlark integration is a future phase; no Bidlark services, credentials or customer records are required.
 
 [Project page](https://cas-tx.com/Dashboard) · [MIT license](LICENSE) · [Operating guide](docs/OPERATIONS.md) · [Architecture and integration](docs/ARCHITECTURE.md) · [Release scope](docs/RELEASE-SCOPE.md)
 
@@ -36,9 +36,11 @@ For development, use `npm run dev`. React changes hot-reload; restart the server
 - Source drilldowns; historical project reconstruction; immutable PDF, Excel and JSON reports; daily labor chart data.
 - Expiring, revocable, read-only publication snapshots with a strict external-data allowlist.
 - PDF/JPEG/PNG attachments, signature checks, size limits and optional ClamAV integration. Unscanned files remain quarantined and cannot be downloaded.
-- Server-enforced organization and project permissions, five roles, password hashing, session expiration, CSRF protection, rate limits, optimistic concurrency and transactional audit events.
+- Server-enforced organization and project permissions, six roles, password hashing, session expiration, CSRF protection, rate limits, optimistic concurrency and transactional audit events.
 - Project setup import/export and reusable templates that reset dates, releases, completion and receipts.
 - Saved overview layouts, widget order, project favorites and filters; responsive layout and keyboard-operable controls.
+- Daily/weekly/monthly scheduled reports with timezone-aware execution, delivery history, retries and current recipient permissions.
+- Optional email-verified workspace signup and Stripe Checkout/customer portal with signed webhook entitlements; self-hosted open-source mode includes all dashboard features.
 - Automatic refresh every 30 seconds with a last-snapshot warning when refresh fails.
 
 ## A first real workflow
@@ -54,7 +56,7 @@ For development, use `npm run dev`. React changes hot-reload; restart the server
 
 See [OPERATIONS.md](docs/OPERATIONS.md) for HTTPS, PostgreSQL, initial setup, backups, recovery and attachment scanning. `Dockerfile` and `compose.yaml` provide a PostgreSQL deployment recipe. Deployment requires your own hostname, HTTPS reverse proxy, database password and random setup token. The application does not provision a domain, email account or cloud subscription.
 
-The default install is one organization per workspace. All records are scoped by organization in server queries, with project assignments for field and purchasing users. The UI does not offer organization switching or self-service tenant signup.
+Administrators can create multiple isolated organizations and grant independent memberships. The header picker changes the current organization. Field, purchasing and accounting users see assigned projects; external viewers see published snapshots only.
 
 ## Validation
 
@@ -66,10 +68,16 @@ npm audit
 
 Tests exercise metric formulas, approval idempotency, version conflicts, tenant/project isolation, publication expiry and revocation, historical snapshots, actual PDF/Excel output, attachment quarantine, project import/templates and disk persistence. `npx tsx scripts/verify-exports.ts` generates synthetic reports for visual review under `.data/export-check/`.
 
-See [RELEASE-SCOPE.md](docs/RELEASE-SCOPE.md) for implemented behavior, deployment verification limits and remaining enterprise work. This release does not claim SSO, billing, payroll, automatic scheduling, a live Bidlark connector or unattended email delivery.
+See [RELEASE-SCOPE.md](docs/RELEASE-SCOPE.md) for implemented behavior, deployment verification limits and remaining enterprise work. Optional OIDC and dependency forecast proposals are implemented. Scheduled delivery, email-verified workspace signup and optional Stripe hosted subscriptions are implemented. SMTP, SSO and hosted payment services require operator configuration; the open-source edition works without a subscription. Payroll and live Bidlark integration remain outside the dashboard scope.
 
 ## Open source
 
-MIT licensed. Dependency licenses remain their own. Bundled font packages use the SIL Open Font License. No AI service, telemetry, paid API or external font request is required. Keep secrets, customer data, local fixture overrides, databases and exports out of source control.
+MIT licensed. Dependency licenses remain their own. Bundled font packages use the SIL Open Font License. No AI service, external telemetry, paid API or external font request is required. Request telemetry stays in the installation. Keep secrets, customer data, local fixture overrides, databases and exports out of source control.
 
 Contributions are welcome. Include focused tests for metric or authorization changes, preserve source lineage, and never replace missing data with invented KPI values.
+
+## Standalone v0.2
+
+See the [acceptance matrix](docs/ACCEPTANCE.md) for the document-to-feature mapping and [validation record](docs/VALIDATION.md) for test evidence. The release adds production curves, dependency forecasts, person-level availability, approved financials, collaboration/notifications, specialized reports, multiple organizations, optional OIDC, encrypted backup/recovery, scheduled report emails, verified signup and optional hosted subscription entitlements. Bidlark integration remains separate.
+
+![Standalone analysis screen](docs/images/standalone-analysis.jpg)

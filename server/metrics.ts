@@ -1,3 +1,4 @@
+import { analyze, resourceAnalysis } from "./analysis.ts";
 import type { Project, RecordRow, Scope, Metric } from "./domain.ts";
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 const round = (v: number) => Math.round(v * 100) / 100;
@@ -176,7 +177,7 @@ export function dashboard(
       needed.every(
         (m) =>
           ["received", "partial"].includes(m.data.status) &&
-          m.data.received >= m.data.required,
+          m.data.received - (m.data.returned || 0) >= m.data.required,
       )
     );
   });
@@ -224,14 +225,14 @@ export function dashboard(
   const late = materials.filter((m) => {
     const task = tasks.find((t) => t.id === m.data.taskId);
     return (
-      m.data.received < m.data.required &&
+      m.data.received - (m.data.returned || 0) < m.data.required &&
       m.data.expectedDate &&
       ((task?.data.forecastStart &&
         m.data.expectedDate > task.data.forecastStart) ||
         m.data.expectedDate < (scope.to || today))
     );
   });
-  const capacity = sum(
+  let capacity = sum(
     crew.map((c) => {
       const start =
         scope.from && scope.from > c.data.start ? scope.from : c.data.start;
@@ -252,6 +253,27 @@ export function dashboard(
       );
     }),
   );
+  const namedCrews = crew.some((c) => c.data.memberIds?.length);
+  if (namedCrews) {
+    const cap = resourceAnalysis(
+      project,
+      records,
+      {
+        ...scope,
+        from: scope.from || crew.map((c) => c.data.start).sort()[0],
+        to:
+          scope.to ||
+          crew
+            .map((c) => c.data.end)
+            .sort()
+            .at(-1),
+      },
+      localToday,
+      3660,
+    );
+    capacity = sum(cap.daily.map((x) => x.availableHours));
+  }
+  const analysis = analyze(project, records, scope, asOf);
   const metrics = [
     metric(
       "estimated_hours",
@@ -339,8 +361,12 @@ export function dashboard(
       crew.length ? capacity : null,
       "h",
       "calendar_capacity_less_unavailability",
-      crew.map((c) => c.id),
-      "Assignment period intersected with selected dates",
+      [...crew, ...records.filter((r) => r.kind === "resource")].map(
+        (c) => c.id,
+      ),
+      namedCrews
+        ? "Distinct assigned people, personal calendars and date-specific unavailability"
+        : "Assignment period intersected with selected dates",
     ),
     metric(
       "material_holds",
@@ -369,17 +395,24 @@ export function dashboard(
       reports.map((r) => r.id),
       "Included in actual field hours",
     ),
-    metric(
-      "budget",
-      "Approved budget",
-      null,
-      "USD",
-      "unavailable",
-      [],
-      "No approved financial inputs",
-    ),
+    ...analysis.financialMetrics,
   ];
+  const scoredRisks = unresolved.filter(
+    (i) =>
+      i.data.type === "risk" &&
+      i.data.probability * i.data.impact >=
+        (project.data.riskWarningScore || 12),
+  );
   const reasons = [
+    ...scoredRisks.map(
+      (i) =>
+        `${i.data.name}: risk score ${i.data.probability * i.data.impact}/25`,
+    ),
+    ...(leaf.length &&
+    (ready.length / leaf.length) * 100 <
+      (project.data.readinessWarningPercent ?? 50)
+      ? ["Material readiness below configured threshold"]
+      : []),
     ...blockers.map((i) => i.data.name),
     ...late.map(
       (m) =>
@@ -407,6 +440,7 @@ export function dashboard(
       note: "Quantities may use different units; inspect activity records",
     }));
   return {
+    analysis,
     project,
     asOf,
     scope,
@@ -434,6 +468,27 @@ export function dashboard(
       (r) =>
         r.kind === "document" &&
         (!scope.sectionId || r.data.sectionId === scope.sectionId),
+    ),
+    requests: records.filter(
+      (r) =>
+        r.kind === "request" &&
+        (!scope.sectionId ||
+          r.data.sectionId === scope.sectionId ||
+          taskIds.has(r.data.taskId)),
+    ),
+    comments: records.filter(
+      (r) =>
+        r.kind === "comment" &&
+        (!scope.sectionId ||
+          r.data.sectionId === scope.sectionId ||
+          taskIds.has(r.data.taskId)),
+    ),
+    finances: records.filter(
+      (r) =>
+        r.kind === "finance" &&
+        (!scope.sectionId ||
+          r.data.sectionId === scope.sectionId ||
+          taskIds.has(r.data.taskId)),
     ),
     milestones,
     trend,

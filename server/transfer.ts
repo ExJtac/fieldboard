@@ -1,3 +1,4 @@
+import { scheduleAnalysis } from "./analysis.ts";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import type { Express } from "express";
@@ -9,7 +10,7 @@ import {
   type User,
   type RecordRow,
 } from "./domain.ts";
-import { authorizedProject, addRecord, event } from "./store.ts";
+import { authorizedProject, addRecord, changeRecord, event } from "./store.ts";
 const entry = (schema: z.ZodType) =>
   z.object({ id: z.string().min(1).max(100), data: schema });
 export const transferSchema = z.object({
@@ -131,10 +132,49 @@ export function installTransfer(app: Express, db: DB) {
         const row = await addRecord(tx, u, p.id, "task", {
           ...d,
           sectionId: ids.get(d.sectionId),
+          predecessorIds: [],
         });
         ids.set(task.id, row.id);
       }
       const taskIds = new Set(data.tasks.map((t) => t.id));
+      for (const task of data.tasks) {
+        const d = task.data as any;
+        const preds = d.predecessorIds || [];
+        assert(
+          preds.every((id: string) => taskIds.has(id) && id !== task.id),
+          400,
+          "Invalid imported predecessor",
+        );
+        if (preds.length) {
+          const row = (
+            await tx.query<RecordRow>("SELECT * FROM records WHERE id=$1", [
+              ids.get(task.id),
+            ])
+          ).rows[0];
+          await changeRecord(
+            tx,
+            u,
+            row,
+            {
+              ...row.data,
+              predecessorIds: preds.map((id: string) => ids.get(id)),
+            },
+            row.version,
+            "dependencies_imported",
+          );
+        }
+      }
+      const importedTasks = (
+        await tx.query<RecordRow>(
+          "SELECT * FROM records WHERE project_id=$1 AND kind='task'",
+          [p.id],
+        )
+      ).rows;
+      assert(
+        scheduleAnalysis(p, importedTasks).reason !== "Dependency cycle",
+        400,
+        "Imported dependency cycle",
+      );
       for (const material of data.materials) {
         const d = material.data as any;
         assert(

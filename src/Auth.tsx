@@ -3,13 +3,19 @@ import { ArrowUpRight, Check, Layers3 } from "lucide-react";
 import { send, fmtDate, moneyless } from "./api";
 export function Auth({
   setup,
+  oidcEnabled,
+  signupEnabled,
   tokenRequired,
   onDone,
 }: {
   setup: boolean;
+  oidcEnabled?: boolean;
+  signupEnabled?: boolean;
   tokenRequired: boolean;
   onDone: () => void;
 }) {
+  const [register, setRegister] = useState(false),
+    [message, setMessage] = useState("");
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   return (
@@ -50,7 +56,14 @@ export function Auth({
       <section className="auth-form">
         <div>
           <p className="eyebrow">FIELDBOARD / WORKSPACE</p>
-          <h2>{setup ? "Make room for better work." : "Welcome back."}</h2>
+          {oidcEnabled && !setup && (
+            <a className="button secondary" href="/api/auth/oidc/start">
+              Sign in with your organization
+            </a>
+          )}
+          <h2>
+            {setup || register ? "Make room for better work." : "Welcome back."}
+          </h2>
           <p className="muted">
             {setup
               ? "Create your organization and the first administrator account."
@@ -63,10 +76,21 @@ export function Auth({
               setError("");
               const data = Object.fromEntries(new FormData(e.currentTarget));
               try {
-                await send(setup ? "/auth/setup" : "/auth/login", {
-                  ...data,
-                  sample: data.sample === "on",
-                });
+                const result = await send(
+                  setup
+                    ? "/auth/setup"
+                    : register
+                      ? "/auth/register"
+                      : "/auth/login",
+                  {
+                    ...data,
+                    sample: data.sample === "on",
+                  },
+                );
+                if (register) {
+                  setMessage(result.message);
+                  return;
+                }
                 onDone();
               } catch (e) {
                 setError((e as Error).message);
@@ -75,7 +99,7 @@ export function Auth({
               }
             }}
           >
-            {setup && (
+            {(setup || register) && (
               <>
                 <label>
                   Your name
@@ -105,7 +129,9 @@ export function Auth({
               <input
                 name="password"
                 type="password"
-                autoComplete={setup ? "new-password" : "current-password"}
+                autoComplete={
+                  setup || register ? "new-password" : "current-password"
+                }
                 minLength={12}
                 required
               />
@@ -129,12 +155,32 @@ export function Auth({
               </p>
             )}
             <button className="button" disabled={busy}>
-              {busy ? "One moment…" : setup ? "Create workspace" : "Sign in"}
+              {busy
+                ? "One moment…"
+                : register
+                  ? "Send verification link"
+                  : setup
+                    ? "Create workspace"
+                    : "Sign in"}
               <ArrowUpRight size={17} />
             </button>
           </form>
+          {message && <p role="status">{message}</p>}
+          {signupEnabled && !setup && (
+            <button
+              className="button secondary"
+              onClick={() => {
+                setRegister(!register);
+                setMessage("");
+                setError("");
+              }}
+            >
+              {register ? "Back to sign in" : "Create a workspace"}
+            </button>
+          )}
           <p className="fine-print">
-            Self-hosted, MIT licensed. No subscription or AI API key required.
+            MIT licensed. Self-hosted dashboard features are free; hosted
+            workspace plans are managed by your provider.
           </p>
         </div>
       </section>

@@ -10,7 +10,7 @@ Organizations, users, sessions and projects have dedicated relational tables. Ty
 
 The `events` table is a durable transactional change log and outbox. Every domain mutation appends the resulting source record inside the same database transaction. Historical reconstruction replays the latest event for each entity through the requested timestamp. Report exports retain the complete computed snapshot; later edits cannot change an existing report's baseline or metric values. Publication snapshots use a separate explicit external allowlist.
 
-The domain has one authoritative schedule per standalone project. A proposed revision never changes the task or project baseline until approved. A material update never mutates schedule dates. Report approval changes contribution eligibility without generating duplicate time or production rows; a void removes eligibility but retains all history.
+The standalone domain has one authoritative schedule per standalone project. A proposed revision never changes the task or project baseline until approved. A material update never mutates schedule dates. Report approval changes contribution eligibility without generating duplicate time or production rows; a void removes eligibility but retains all history.
 
 ## Metric contract
 
@@ -51,4 +51,20 @@ The future adapter should map Bidlark organization IDs, project IDs, project num
 
 Before connecting, establish one authority for schedule tasks, approved progress/time and procurement. Replace standalone reads with authorized adapter projections, or ingest versioned source events idempotently with an `(organization, source, sourceEventId)` uniqueness constraint. Retain upstream source IDs and versions in every metric. Do not dual-write dates or purchase-order statuses to independent modules. Map roles on the server and preserve project-level and field-level permissions. Billing entitlements must never substitute for authorization.
 
-This release contains no live Bidlark connection, SSO bridge, subscription service, cross-service event consumer or estimate importer for proprietary formats. The JSON interchange and pure metric functions are the integration seam, not a claim that those connectors exist.
+This release contains no live Bidlark connection, cross-service event consumer or estimate importer for proprietary formats. Standalone OIDC is supported through explicit issuer/subject mappings; shared Bidlark identity remains later integration. The JSON interchange and pure metric functions are the integration seam, not a claim that those connectors exist.
+
+## Standalone expansion
+
+`analysis.ts` computes production windows, working-calendar dependency scenarios, approved financial projections and personal resource availability. `reporting.ts` defines nine report tables; `exports.ts` consumes the same immutable snapshot as the UI. Branding and portfolio scope are frozen at export time, and downloads recheck current project and field permissions.
+
+Organization memberships override legacy home-organization roles per session. `organizations.ts` handles creation/switching/membership grants. `oidc.ts` uses openid-client code flow with PKCE, state and nonce; local roles always remain authoritative. Mapping an SSO account requires the home organization's administrator. No email-based automatic account linking occurs.
+
+`notifications.ts` writes durable notifications within source transactions and generates deduplicated reminders. `jobs.ts` runs reminders, opt-in retention and configured encrypted backups with one job at a time per process. `backup.ts` uses a consistent SQL snapshot, a trusted table allowlist and authenticated encryption; restore requires an empty database and excludes active sessions.
+
+Resource calendars are organization-owned. Resource changes are audited and replayed alongside project events for historical projections. Project calculations receive only authorized source records; financial and management-comment records are filtered on the server.
+
+## Scheduled delivery and hosted entitlements
+
+`schedules.ts` stores timezone-aware daily/weekly/monthly schedules and unique recipient jobs. Workers claim jobs with SQL locks and leases, freeze the reporting time and snapshot, recheck tenant/project/role access before each attempt, and retry transient SMTP errors up to five times. A paused schedule or revoked access stops delivery. Internal recipients receive only authorized report attachments; customer recipients receive expiring allowlisted single-project links. Tokens exist in the protected outgoing payload until SMTP accepts the message, then the payload is removed. Delivery is at-least-once: an SMTP connection loss after acceptance can produce a duplicate with the same Message-ID. DST spring gaps skip that local day; repeated fall hours run once.
+
+`signup.ts` optionally creates new isolated workspaces after a one-use expiring email verification. Password hashes, not passwords, are staged. `billing.ts` defaults to the fully included open-source edition. Optional Stripe mode creates server-priced Checkout sessions and organization-bound portal sessions; raw signed webhooks reconcile the current subscription, deduplicate event IDs, and enforce dashboard access without relaxing role checks. No client-supplied price, customer or organization can grant entitlement.
