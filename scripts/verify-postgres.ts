@@ -53,6 +53,20 @@ try {
     0,
     "Native PostgreSQL delivery and subscription tests failed",
   );
+  const interrupted = await openDb(url.href);
+  try {
+    const pid = (await interrupted.query("SELECT pg_backend_pid() AS pid"))
+      .rows[0].pid;
+    await control.query("SELECT pg_terminate_backend($1)", [pid]);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(
+      (await interrupted.query("SELECT 1 AS ready")).rows[0].ready,
+      1,
+    );
+    console.log("PASS idle PostgreSQL disconnect recovery");
+  } finally {
+    await interrupted.close();
+  }
   db = await openDb(url.href);
   const backup = await backupData(db);
   const restoreUrl = new URL(url);
@@ -168,6 +182,6 @@ try {
   if (db) await db.close();
   if (restored) await restored.close();
   for (const n of [name, restoreName, deliveryName])
-    await control.query(`DROP DATABASE IF EXISTS ${n} WITH (FORCE)`);
+    await control.query(`DROP DATABASE IF EXISTS ${n}`);
   await control.end();
 }

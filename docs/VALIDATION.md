@@ -6,6 +6,7 @@ Validation performed locally on November 26, 2026 (America/Denver), using synthe
 
 - Full test suite: 54 tests, covering the original core flows plus forecasts, EVM, availability, approvals, collaboration, identity, backup encryption/recovery and dependency interchange.
 - TypeScript and Vite production build pass.
+- Native PostgreSQL idle-connection termination recovers without crashing the service; shutdown waits for connection sockets before temporary database cleanup.
 - All nine report layouts produce PDF and Excel; generated Excel workbooks are reopened and their expected sheets checked.
 - Native PostgreSQL 14: all 27 expanded workflow, delivery, signup and billing tests pass against the same SQL adapter used for server PostgreSQL.
 - Native PostgreSQL backup and restore: restored table counts and audit history match the source; restoration refuses a nonempty destination. Embedded recovery also checks file content and authenticated-encryption failure on tampering/wrong keys.

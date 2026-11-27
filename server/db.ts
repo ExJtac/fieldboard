@@ -10,6 +10,27 @@ export interface DB {
 export async function openDb(url?: string): Promise<DB> {
   if (url?.startsWith("postgres")) {
     const pool = new pg.Pool({ connectionString: url, max: 10 });
+    const connections = new Set<pg.PoolClient>();
+    pool.on("connect", (client) => connections.add(client));
+    pool.on("remove", (client) => connections.delete(client));
+    pool.on("error", (error) =>
+      console.error(
+        JSON.stringify({
+          event: "database_idle_connection_error",
+          code: (error as any).code,
+          message: error.message,
+        }),
+      ),
+    );
+    const close = async () => {
+      // pg-pool can resolve end() before all sockets emit end. Await both.
+      const ended = [...connections].map(
+        (client) =>
+          new Promise<void>((resolve) => client.once("end", () => resolve())),
+      );
+      await pool.end();
+      await Promise.all(ended);
+    };
     const adapt = (client: pg.Pool | pg.PoolClient): DB => ({
       query: async <T>(s: string, p?: any[]) => ({
         rows: (await client.query(s, p)).rows as T[],
@@ -29,7 +50,7 @@ export async function openDb(url?: string): Promise<DB> {
           c.release();
         }
       },
-      close: () => pool.end(),
+      close,
     });
     return adapt(pool);
   }
