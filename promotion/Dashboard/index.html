@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Fieldboard | Open Source Construction Dashboard | CAS-TX</title>
+    <meta
+      name="description"
+      content="Fieldboard is a self-hosted, open-source construction dashboard from CAS-TX. Manage projects, approvals, labor, materials and traceable reports. MIT licensed."
+    />
+    <meta name="robots" content="index,follow" />
+    <meta name="theme-color" content="#f5f3ec" />
+    <link rel="canonical" href="https://cas-tx.com/Dashboard" />
+    <meta
+      property="og:title"
+      content="Fieldboard — A clearer view of the work."
+    />
+    <meta
+      property="og:description"
+      content="Open-source construction project control. Your records, your infrastructure, your next decision."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://cas-tx.com/Dashboard" />
+    <meta
+      property="og:image"
+      content="https://cas-tx.com/Dashboard/dashboard.png"
+    />
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="stylesheet" href="/Dashboard/fieldboard.css" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Fieldboard",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Self-hosted web application; Node.js 22+",
+        "url": "https://cas-tx.com/Dashboard",
+        "license": "https://opensource.org/license/mit",
+        "softwareVersion": "0.1.0",
+        "description": "Open-source construction dashboard with traceable metrics, approval workflows and self-hosted data.",
+        "author": {
+          "@type": "Organization",
+          "name": "CAS-TX",
+          "url": "https://cas-tx.com"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="wrap">
+      <a class="logo" href="/">CAS-TX<span>✳</span></a>
+      <nav aria-label="Main navigation">
+        <a href="/open-source/">Open source</a
+        ><a href="/products/">Paid products</a
+        ><a href="/#contact">Let’s build ↗</a>
+      </nav>
+    </header>
+    <main id="main">
+      <section class="hero wrap">
+        <div class="hero-copy">
+          <div class="eyebrow">
+            <i></i> FROM THE CAS-TX WORKBENCH / FIELDBOARD
+          </div>
+          <h1>A clearer view<br />of <em>the work.</em></h1>
+          <p class="lead">
+            Your schedule. Your crew. Your next decision. Bring the project
+            together in an open-source dashboard you can run yourself.
+          </p>
+          <div class="cta-row">
+            <a class="button" href="https://github.com/ExJtac/fieldboard"
+              >Get the source <span>↗</span></a
+            ><a class="text-link" href="#how-it-works">See how it works ↓</a>
+          </div>
+          <p class="release">
+            <span>STANDALONE BETA</span> MIT licensed · Self-hosted · No AI key
+            required
+          </p>
+        </div>
+        <div class="hero-board">
+          <div class="board-top">
+            <span>fieldboard</span><span>PROJECT CONTROL ↗</span>
+          </div>
+          <div class="board-word">
+            Know what<br />needs your<br /><em>attention.</em>
+          </div>
+          <div class="board-list">
+            <span><b>01</b> Capture the work <i>↗</i></span
+            ><span><b>02</b> Review the evidence <i>✓</i></span
+            ><span><b>03</b> Make the next decision <i>→</i></span>
+          </div>
+          <div class="board-bottom">BUILT ON RECORDS. READY FOR DECISIONS.</div>
+        </div>
+      </section>
+      <section class="proof wrap">
+        <div>
+          <span>OPEN CODE</span><strong>Make it yours.</strong>
+          <p>MIT-licensed source you can inspect, adapt and self-host.</p>
+        </div>
+        <div>
+          <span>VERIFIED INPUTS</span><strong>Follow the evidence.</strong>
+          <p>
+            Open any KPI to see its calculation, timestamp and source records.
+          </p>
+        </div>
+        <div>
+          <span>YOUR INFRASTRUCTURE</span><strong>Keep the keys.</strong>
+          <p>
+            Local PostgreSQL-compatible storage or your own PostgreSQL server.
+          </p>
+        </div>
+      </section>
+      <section class="product wrap">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">01 / YOUR PROJECT, IN VIEW</p>
+            <h2>Useful from the<br />first approved report.</h2>
+          </div>
+          <p>
+            Missing information stays unconfirmed. Drafts stay out of your
+            totals. Approved records tell the story.
+          </p>
+        </div>
+        <figure>
+          <div class="window-bar">
+            <i></i><i></i><i></i><span>FIELDBOARD / SAMPLE PROJECT</span>
+          </div>
+          <img
+            src="/Dashboard/dashboard.png"
+            alt="Fieldboard sample dashboard showing approved hours, material readiness, milestones, and clearly labeled unknown values"
+            width="1440"
+            height="1100"
+            loading="lazy"
+          />
+          <figcaption>
+            Actual application screenshot with synthetic test data. The 16 hours
+            shown came from an approved sample report; missing progress and
+            dates remain unconfirmed.
+          </figcaption>
+        </figure>
+      </section>
+      <section class="features wrap" id="how-it-works">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">02 / FROM FIELD NOTE TO NEXT ACTION</p>
+            <h2>A workflow that<br />holds together.</h2>
+          </div>
+          <p>
+            Working forms, persisted records and server permissions connect the
+            dashboard to the people doing the work.
+          </p>
+        </div>
+        <div class="feature-grid">
+          <article>
+            <span>01 / PLAN</span>
+            <h3>Set up the project.</h3>
+            <p>
+              Create projects and sections, add task estimates, confirm GC
+              releases and plan crews. Reuse templates for the next job.
+            </p>
+          </article>
+          <article>
+            <span>02 / CAPTURE</span>
+            <h3>Record the day.</h3>
+            <p>
+              Log field hours, installed quantities, safety notes and delays.
+              Track materials, delivery risks and open RFIs alongside the work.
+            </p>
+          </article>
+          <article>
+            <span>03 / VERIFY</span>
+            <h3>Approve the facts.</h3>
+            <p>
+              Review daily reports and proposed schedule revisions. Every
+              decision records who approved it, when and why.
+            </p>
+          </article>
+          <article>
+            <span>04 / SHARE</span>
+            <h3>Publish with scope.</h3>
+            <p>
+              Export a saved PDF or Excel snapshot. Create an expiring customer
+              report link that leaves internal labor and notes out.
+            </p>
+          </article>
+        </div>
+      </section>
+      <section class="ownership">
+        <div class="wrap ownership-inner">
+          <div>
+            <p class="eyebrow">03 / START STANDALONE</p>
+            <h2>Your dashboard.<br />Your way forward.</h2>
+          </div>
+          <div>
+            <p>
+              Fieldboard is an independent application first. Download the
+              source, run it locally, and validate it against your own workflow.
+            </p>
+            <p>
+              A future Bidlark integration is a separate phase. This beta does
+              not require a Bidlark subscription, and it does not claim a live
+              Bidlark connection.
+            </p>
+            <a
+              class="text-link"
+              href="https://github.com/ExJtac/fieldboard/blob/main/docs/RELEASE-SCOPE.md"
+              >Read the release scope ↗</a
+            >
+          </div>
+        </div>
+      </section>
+      <section class="setup wrap" id="get-started">
+        <div>
+          <p class="eyebrow">04 / PUT IT TO WORK</p>
+          <h2>Open source.<br />Ready to run.</h2>
+          <p>
+            You’ll need Node.js 22 or newer. Build the app, open the local
+            address and create your own administrator account.
+          </p>
+          <div class="cta-row">
+            <a class="button" href="https://github.com/ExJtac/fieldboard"
+              >Open GitHub ↗</a
+            ><a
+              class="text-link"
+              href="https://github.com/ExJtac/fieldboard/blob/main/docs/OPERATIONS.md"
+              >Self-hosting guide ↗</a
+            >
+          </div>
+        </div>
+        <div class="terminal">
+          <div><i></i><i></i><i></i><span>YOUR TERMINAL</span></div>
+          <pre><code>git clone https://github.com/ExJtac/fieldboard.git
+cd fieldboard
+npm ci
+npm run build
+npm start</code></pre>
+          <p>Then open http://127.0.0.1:4310</p>
+        </div>
+      </section>
+      <section class="faq wrap">
+        <h2>Before your first project.</h2>
+        <details>
+          <summary>Is this a hosted subscription?</summary>
+          <p>
+            No. This release is an MIT-licensed, self-hosted application.
+            Hosting, backups and maintenance are your responsibility. CAS-TX can
+            discuss help with setup or customization.
+          </p>
+        </details>
+        <details>
+          <summary>What is included in the beta?</summary>
+          <p>
+            Projects, schedules and revisions, report approvals, verified labor
+            and progress metrics, materials, crews, issues, PDF/Excel exports,
+            scoped customer sharing, team permissions and project templates.
+            Review the repository for the complete scope and tests.
+          </p>
+        </details>
+        <details>
+          <summary>Is it ready for my live customer data?</summary>
+          <p>
+            Validate the beta in your staging environment first. Configure
+            HTTPS, access, database backups and attachment scanning. SSO,
+            billing, automated emails and a live Bidlark connector are future
+            work, not included services.
+          </p>
+        </details>
+        <details>
+          <summary>Can CAS-TX help me run it?</summary>
+          <p>
+            Yes. Tell us about your team, hosting and workflow through the
+            contact page. We can discuss a scoped setup or customization
+            project.
+          </p>
+        </details>
+      </section>
+      <section class="contact">
+        <div class="wrap">
+          <div>
+            <p class="eyebrow">LET’S MAKE IT USEFUL</p>
+            <h2>Built for the field.<br />Made to be yours.</h2>
+          </div>
+          <a class="button cream" href="/?interest=open-source#contact"
+            >Talk about your setup ↗</a
+          >
+        </div>
+      </section>
+    </main>
+    <footer class="wrap">
+      <a class="logo" href="/">CAS-TX<span>✳</span></a>
+      <p>Fieldboard · Open-source construction project control</p>
+      <a href="/open-source/">Explore more open-source projects ↗</a>
+    </footer>
+  </body>
+</html>
